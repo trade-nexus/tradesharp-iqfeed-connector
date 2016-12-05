@@ -58,6 +58,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Provider\BarData.cs" />
     <Compile Include="Provider\ConnectionForm.cs" />
     <Compile Include="Provider\IqFeedMarketDataProvider.cs" />
     <Compile Include="Provider\LevelOneData.cs" />
