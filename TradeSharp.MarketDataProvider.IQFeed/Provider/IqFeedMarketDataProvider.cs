@@ -4,10 +4,13 @@ using TraceSourceLogger;
 using TradeHub.Common.Core.Utility;
 using TradeSharp.MarketDataProvider.IQFeed.ValueObject;
 using Constants = TradeHub.Common.Core.Constants;
+using TradeHub.Common.Core.DomainModels;
+using TradeHub.Common.Core.MarketDataProvider;
+using TradeHub.Common.Core.ValueObjects.MarketData;
 
 namespace TradeSharp.MarketDataProvider.IQFeed.Provider
 {
-    public class IqFeedMarketDataProvider
+    public class IqFeedMarketDataProvider : ILiveTickDataProvider, ILiveBarDataProvider, IHistoricBarDataProvider
     {
         private Type _type = typeof(IqFeedMarketDataProvider);
 
@@ -40,7 +43,44 @@ namespace TradeSharp.MarketDataProvider.IQFeed.Provider
         /// </summary>
         public event Action<string> LogoutArrived;
 
+        /// <summary>
+        /// Fired each time a new tick arrives.
+        /// </summary>
+        public event Action<Tick> TickArrived;
+
+        /// <summary>
+        /// Fired each time a new Bar Arrives
+        /// Bar =  TradeSharp Bar Object
+        /// String =  Request ID
+        /// </summary>
+        public event Action<Bar, string> BarArrived;
+
+        /// <summary>
+        /// Fired when requested Historic Bar Data arrives
+        /// </summary>
+        public event Action<HistoricBarData> HistoricBarDataArrived;
+
+        /// <summary>
+        /// Fired each time when market data rejection arrives.
+        /// </summary>
+        public event Action<MarketDataEvent> MarketDataRejectionArrived;
+
         #endregion
+
+        /// <summary>
+        /// Provides Level 1 data from IQ Feed
+        /// </summary>
+        private LevelOneData _levelOneData;
+
+        /// <summary>
+        /// Provides Live Bars from IQ Feed
+        /// </summary>
+        private BarData _barData;
+
+        /// <summary>
+        /// Provides Historical Bar Data from IQ Feed
+        /// </summary>
+        private HistoricalData _historicalData;
 
         /// <summary>
         /// Responsible for connecting to local IQ Feed Connector application
@@ -59,6 +99,41 @@ namespace TradeSharp.MarketDataProvider.IQFeed.Provider
 
             // Object will be used for connecting to local IQ Feed Connector application
             _connectionForm = new ConnectionForm(_logger);
+
+            // Initialize Data classes
+            _levelOneData = new LevelOneData(_logger);
+            _barData = new BarData(_logger);
+            _historicalData = new HistoricalData(_logger);
+
+            // Register local events
+            SubscribeLocalDataEvents();
+        }
+
+        /// <summary>
+        /// Registers Events from local data classes
+        /// </summary>
+        private void SubscribeLocalDataEvents()
+        {
+            // Makes sure events are subscribed only once
+            UnsubscribeLocalDataEvents();
+
+            _levelOneData.ConnectionEvent += OnDataFeedConnected;
+
+            _levelOneData.DataEvent += OnLevelOneDataArrived;
+            _barData.BarDataEvent += OnLiveBarArrived;
+            _historicalData.HistoricalDataEvent += OnHistoricalDataArrived;
+        }
+
+        /// <summary>
+        /// Unsubscribes Events from local data classes
+        /// </summary>
+        private void UnsubscribeLocalDataEvents()
+        {
+            _levelOneData.ConnectionEvent -= OnDataFeedConnected;
+
+            _levelOneData.DataEvent -= OnLevelOneDataArrived;
+            _barData.BarDataEvent -= OnLiveBarArrived;
+            _historicalData.HistoricalDataEvent -= OnHistoricalDataArrived;
         }
 
         #region Connection Methods
@@ -94,6 +169,11 @@ namespace TradeSharp.MarketDataProvider.IQFeed.Provider
 
                 Thread.Sleep(4000);
 
+                // Open connection with Data feed
+                _barData.OpenBarDataConnection();
+                _historicalData.OpenHistoricalDataConnection();
+                _levelOneData.OpenLevelOneDataConnection();
+
                 return true;
             }
             catch (Exception exception)
@@ -112,6 +192,10 @@ namespace TradeSharp.MarketDataProvider.IQFeed.Provider
             {
                 if (_isConnected)
                 {
+                    // Stop subscribed data feed
+                    _levelOneData.Stop();
+                    _barData.Stop();
+
                     //// Close connection with the local IQFeed application
                     //_connectionForm.Stop();
 
@@ -134,6 +218,135 @@ namespace TradeSharp.MarketDataProvider.IQFeed.Provider
                 return false;
             }
         }
+
+        #endregion
+
+        #region Subscription
+
+        /// <summary>
+        /// Market data request message
+        /// </summary>
+        public bool SubscribeTickData(Subscribe request)
+        {
+            try
+            {
+                if (_isConnected)
+                {
+                    // Forward request
+                    _levelOneData.Subscribe(request.Security.Symbol);
+
+                    return true;
+                }
+
+                return false;
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, _type.FullName, "SubscribeTickData");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Unsubscribe Market data message
+        /// </summary>
+        public bool UnsubscribeTickData(Unsubscribe request)
+        {
+            try
+            {
+                if (_isConnected)
+                {
+                    // Forward request
+                    _levelOneData.Unsubscribe(request.Security.Symbol);
+
+                    return true;
+                }
+
+                return false;
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, _type.FullName, "UnsubscribeTickData");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Request to get Bar Data
+        /// </summary>
+        /// <param name="barDataRequest">TradeSharp Bar Data Request Message</param>
+        /// <returns></returns>
+        public bool SubscribeBars(BarDataRequest barDataRequest)
+        {
+            try
+            {
+                if (_isConnected)
+                {
+                    // Forward request
+                    _barData.Subscribe(barDataRequest);
+
+                    return true;
+                }
+
+                return false;
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, _type.FullName, "SubscribeBars");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Unsubscribe Bar data
+        /// </summary>
+        /// <param name="barDataRequest">TradeSharp Bar Data Request Message</param>
+        /// <returns></returns>
+        public bool UnsubscribeBars(BarDataRequest barDataRequest)
+        {
+            try
+            {
+                if (_isConnected)
+                {
+                    // Forward request
+                    _barData.Unsubscribe(barDataRequest);
+
+                    return true;
+                }
+
+                return false;
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, _type.FullName, "UnsubscribeBars");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Historic Bar Data Request Message
+        /// </summary>
+        public bool HistoricBarDataRequest(HistoricDataRequest historicDataRequest)
+        {
+            try
+            {
+                if (_isConnected)
+                {
+                    // Forward request
+                    _historicalData.Subscribe(historicDataRequest);
+
+                    return true;
+                }
+
+                return false;
+            }
+            catch (Exception exception)
+            {
+                _logger.Error(exception, _type.FullName, "HistoricBarDataRequest");
+                return false;
+            }
+        }
+
 
         #endregion
 
@@ -166,6 +379,65 @@ namespace TradeSharp.MarketDataProvider.IQFeed.Provider
             }
 
             _connectionParameters = null;
+        }
+
+        /// <summary>
+        /// Called when IQ Data Feed server status changes
+        /// </summary>
+        /// <param name="status"></param>
+        private void OnDataFeedConnected(bool status)
+        {
+            _isConnected = status;
+
+            if (_logger.IsInfoEnabled)
+            {
+                _logger.Info("Data Feed Server connected: " + _isConnected, _type.FullName, "OnDataFeedConnected");
+            }
+
+            // Raise event to notify listeners
+            if (LogonArrived != null)
+            {
+                LogonArrived(_marketDataProviderName);
+            }
+        }
+
+        /// <summary>
+        /// Called when new Tick data is received
+        /// </summary>
+        /// <param name="tick"></param>
+        private void OnLevelOneDataArrived(Tick tick)
+        {
+            // Raise Event to notify listeners
+            if (TickArrived != null)
+            {
+                TickArrived(tick);
+            }
+        }
+
+        /// <summary>
+        /// Called when new live Bar is received
+        /// </summary>
+        /// <param name="bar"></param>
+        private void OnLiveBarArrived(Bar bar)
+        {
+            // Raise Event to notify listeners
+            if (BarArrived != null)
+            {
+                BarArrived(bar, bar.RequestId);
+            }
+        }
+
+        /// <summary>
+        /// Called when requested Historical data is received
+        /// </summary>
+        /// <param name="historicBarData"></param>
+        private void OnHistoricalDataArrived(HistoricBarData historicBarData)
+        {
+            // Raise Event to notify listeners
+            if (HistoricBarDataArrived != null)
+            {
+                HistoricBarDataArrived(historicBarData);
+            }
         }
     }
 }
