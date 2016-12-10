@@ -53,3 +53,7 @@ Find more about TradeSharp [here](https://www.tradesharp.se/).
 4. Repeat the steps for **TradeSharp.MarketDataProvider.IQFeed.Tests** project.
 
 ***
+
+### Bugs
+
+Please report bugs [here](https://github.com/trade-nexus/bugs)
